@@ -3,6 +3,8 @@ const sha = require('crypto-js/sha256')
 const app = express()
 const port = 3000
 
+const balance = require('./utilities/balance')
+
 const companyPublic = '849b0e3127213311af8d65cfcee44e429484e6f33bd9b6774eb0548cc5164e7e'
 // be1ddc6ef78646ac9fbbe2e6d4af8e6ee993d77fed22bb79fc53178381276812
 
@@ -57,6 +59,11 @@ class Blockchain {
     this.chain.push(block)
   }
 
+  coinbase(address) {
+    const coinbase = new Block('CoinBase', address, 10)
+    this.addBlock(coinbase)
+  }
+
 }
 
 
@@ -95,6 +102,13 @@ app.get('/send', (req, res) => {
     req.send('invalid sender')
     return
   }
+
+  // check if sender has enough balance
+  if (balance(req.query.sender, blockchain) < req.query.amount) {
+    res.send('insufficient balance')
+    return
+  }
+
   const sender = new KeyPair(req.query.sender) 
   const recipient = req.query.recipient
   const block = new Block(sender.getPublic(), recipient, req.query.amount)
@@ -104,14 +118,25 @@ app.get('/send', (req, res) => {
 
 })
 
+app.get('/balance', (req, res) => {
+  const bal = balance(req.query.address, blockchain)
+  res.send('balance: ' + bal)
+})
+
 app.get('/', (req, res) => {
   let representation = ''
   for (let i = 0; i < blockchain.chain.length; i++) {
     // make a formatted string
-    representation += `Block ${i}: ${blockchain.chain[i].sender} -> ${blockchain.chain[i].recipient} : ${blockchain.chain[i].amount}` + "\n"
+    representation += `Block ${i}: ${blockchain.chain[i].sender} -> ${blockchain.chain[i].recipient} : ${blockchain.chain[i].amount}`
+    // add a new line
+    representation += '\n'
   }
-  res.send(representation)
+  res.send(blockchain.chain) // change later to send the representation
 })
 
 
 app.listen(port, () => {})
+
+setInterval(() => {
+  blockchain.coinbase(companyPublic)
+}, 10000)
