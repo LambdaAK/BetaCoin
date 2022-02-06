@@ -1,8 +1,27 @@
+/*
+BetaCoin
+
+Private Key -> sha256 -> Public Key
+
+*/
+
+
+
+
+
+
+
+
+
+
 const express = require('express')
 const sha = require('crypto-js/sha256')
 const app = express()
 const port = 3000
-
+/*
+private: f3e66e6f9f2919c19f2694de3b9adf3dd4dd14fefa91ba68d7cb8f83c374d67e 
+public: 71a788b2da3b4c290d3b91e330ed5582221f24f2d95b2e8f0967928df51b4b5a
+*/
 const balance = require('./utilities/balance')
 
 const companyPublic = '849b0e3127213311af8d65cfcee44e429484e6f33bd9b6774eb0548cc5164e7e'
@@ -12,7 +31,7 @@ const companyPublic = '849b0e3127213311af8d65cfcee44e429484e6f33bd9b6774eb0548cc
 // private key is a random number
 // public key is the hash of the private key
 
-class Block {
+class Transaction {
   // contains the following data
   // sender, recipient, amount, timestamp
   /**
@@ -25,8 +44,40 @@ class Block {
     this.sender = sender
     this.recipient = recipient
     this.amount = amount
-    this.next = null
   }
+
+}
+
+class Block {
+  // contains the following data
+  // transactions
+  // timestamp
+  // hash
+  // previousHash
+
+  /**
+   * @param {Transaction[]} transactions 
+   * @param {string} previousHash 
+   * @param {number} index 
+   */
+  constructor (transactions, previousHash, index) {
+    this.timestamp = Date.now()
+    this.transactions = transactions
+    this.previousHash = previousHash
+    this.hash = this.calculateHash()
+    this.index = index
+  }
+
+  calculateHash() {
+    /*
+    the index, hash of the last block, the timestamp, and the transactions
+    all affect the hash of the block, making any small change to the data a dramatic change in the block's hash 
+    */
+    return sha(this.index + this.previousHash + this.timestamp + JSON.stringify(this.transactions)).toString()
+  }
+
+
+
 }
 
 
@@ -43,15 +94,26 @@ class Blockchain {
   // whenever the sender is CoinBase, the crypto is generated out of thin air
   genesisBlock = null
   chain = null
+  pending = null // pending transactions
+
   constructor() {
     this.chain = []
     this.createGenesisBlock()
-    
+    this.pending = []
 
+
+    setInterval(() => {
+      this.coinbase(companyPublic)
+    }, 10000)
+
+    setInterval(() => {
+      this.mine()
+    }, 20000)
   }
 
   createGenesisBlock() {
-    this.genesisBlock = new Block('CoinBase', companyPublic, 10)
+    this.firstCoinBaseTransaction = new Transaction('CoinBase', companyPublic, 10)
+    this.genesisBlock = new Block([this.firstCoinBaseTransaction], '0', 0)
     this.chain.push(this.genesisBlock)
   }
 
@@ -60,9 +122,21 @@ class Blockchain {
   }
 
   coinbase(address) {
-    const coinbase = new Block('CoinBase', address, 10)
-    this.addBlock(coinbase)
+    const coinbase = new Transaction('CoinBase', address, 10)
+    this.addPendingTransaction(coinbase)
   }
+
+  addPendingTransaction(transaction) {
+    this.pending.push(transaction)
+  }
+
+  mine() {
+    const block = new Block(this.pending /*transactions*/, this.chain[this.chain.length - 1].hash /*prev hash*/, this.chain.length /*new index*/)
+    this.addBlock(block)
+    this.pending = []
+  }
+
+
 
 }
 
@@ -95,27 +169,24 @@ app.get('/pair', (req, res) => {
 })
 
 app.get('/send', (req, res) => {
-  console.log(req.query.sender)
-  console.log(req.query.recipient)
-  console.log(req.query.amount)
   if (req.query.sender == "CoinBase") {
     req.send('invalid sender')
     return
   }
-
+  const sender = new KeyPair(req.query.sender)
   // check if sender has enough balance
-  if (balance(req.query.sender, blockchain) < req.query.amount) {
+  if (balance(sha(req.query.privateKey), blockchain) < req.query.amount) {
     res.send('insufficient balance')
+    console.log('insufficient balance')
     return
   }
 
-  const sender = new KeyPair(req.query.sender) 
+  
   const recipient = req.query.recipient
-  const block = new Block(sender.getPublic(), recipient, req.query.amount)
-  blockchain.addBlock(block)
-  res.send('block added')
-
-
+  const transaction = new Transaction(sender.getPublic(), recipient, Number(req.query.amount))
+  blockchain.addPendingTransaction(transaction)
+  console.log('pending transaction: ' + JSON.stringify(transaction))
+  res.send('transaction pending')
 })
 
 app.get('/balance', (req, res) => {
@@ -137,6 +208,4 @@ app.get('/', (req, res) => {
 
 app.listen(port, () => {})
 
-setInterval(() => {
-  blockchain.coinbase(companyPublic)
-}, 10000)
+
